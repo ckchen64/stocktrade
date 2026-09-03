@@ -1,73 +1,71 @@
 import React, { useState } from 'react';
 import CandleStickChart from '../features/chart/CandleStickChart';
-import IndicatorConfig from '../features/chart/IndicatorConfig';
+import type { CandleData } from '../features/chart/types';
 import SimulationConsole from '../features/simulation/SimulationConsole';
 import OrderPanel from '../features/simulation/OrderPanel';
 import AssetDashboard from '../features/dashboard/AssetDashboard';
 import TradeTimeline from '../features/dashboard/TradeTimeline';
-import { fetchNextDaySimulation } from '../api/stockApi';
-import type { SimulationResponse } from '../types/stock';
 
 export const StockExchangePage: React.FC = () => {
-  const [selectedStock, setSelectedStock] = useState<string>('005930');
+  const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [selectedIndicators, setSelectedIndicators] = useState<string[]>([
-    'SMA', 'MACD', 'RSI', 'MFI', 'OBV', 'SIGMA', 'ADX', 'CCI'
+    'SMA', 'MACD', 'OBV', 'RSI', 'MFI', 'SIGMA', 'ADX', 'CCI', 'EOM'
   ]);
-  const [chartData, setChartData] = useState<SimulationResponse[]>([]);
-  const [reportText, setReportText] = useState<string>('');
+  const [chartData, setChartData] = useState<CandleData[]>([]);
 
-  // 시뮬레이션 '다음 날' 버튼 클릭 이벤트 핸들러
-  const handleNextDay = async () => {
-    try {
-      const data = await fetchNextDaySimulation(selectedStock, selectedIndicators);
-      if (data.status === 'SUCCESS') {
-        setChartData((prev) => [...prev, data]);
-        if (data.reportText) setReportText(data.reportText);
-      } else {
-        alert(data.message || '시뮬레이션이 종료되었습니다.');
-      }
-    } catch (error) {
-      console.error('시뮬레이션 데이터 수신 에러:', error);
+  const handleSimulationAdvance = (newCandleFromServer: CandleData & { status?: string }) => {
+    if (newCandleFromServer.status === 'END') {
+      alert('시뮬레이션 데이터가 소모되어 종료되었습니다.');
+      return;
     }
+
+    // 🎯 EOM 수치 안전 보정 적용 후 배열에 추가
+    const safeCandle = {
+      ...newCandleFromServer,
+      eom: typeof (newCandleFromServer as any).eom === 'number' && !isNaN((newCandleFromServer as any).eom) 
+        ? (newCandleFromServer as any).eom 
+        : 0
+    };
+
+    setChartData((prev) => [...prev, safeCandle]);
+  };
+
+  // 🔄 주문 성공 시 실행될 리프레시 로직
+  const handleOrderSuccess = () => {
+    console.log("주문 성공! 타임라인 및 자산 현황 갱신");
   };
 
   return (
     <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <h1>📈 주식 거래 및 지표 분석 시뮬레이터</h1>
       
-      {/* 상단: 자산 현황 & 시뮬레이션 콘솔 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-        <AssetDashboard
-        data={{
-      cash: 10000000,        // 예시: 예수금
-      totalAsset: 10000000,  // 예시: 총 자산
-      returnRate: 0.0,       // 예시: 수익률
-    }}
-        />
-        <SimulationConsole onNextDay={handleNextDay} reportText={reportText} />
-      </div>
+      <AssetDashboard />
 
-      {/* 중단: 차트 & 지표 설정 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '20px' }}>
-        {/* 💡 selectedIndicators props 누락 수정 */}
-        <CandleStickChart data={chartData} selectedIndicators={selectedIndicators} />
-        <IndicatorConfig 
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1.5fr', gap: '20px' }}>
+        {/* 🎯 selectedIndicators prop 연결 완료 */}
+        <CandleStickChart 
+          chartDataList={chartData} 
           selectedIndicators={selectedIndicators} 
-          setSelectedIndicators={setSelectedIndicators} 
+        />
+        
+        <SimulationConsole 
+          selectedIndicators={selectedIndicators}
+          setSelectedIndicators={setSelectedIndicators}
+          onSimulationAdvance={handleSimulationAdvance}
+          onNextDay={() => {}} 
+          reportText=""
         />
       </div>
 
-      {/* 하단: 주문 패널 & 거래 내역 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-        <OrderPanel stockCode={selectedStock} />
-        <TradeTimeline />
+        <OrderPanel onOrderSuccess={handleOrderSuccess} />
+        <TradeTimeline historyList={tradeHistory} />
       </div>
     </div>
   );
 };
 
 export default StockExchangePage;
-
 
 
 

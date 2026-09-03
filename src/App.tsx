@@ -1,16 +1,15 @@
-import React from 'react';
 import StockExchangePage from './pages/StockExchangePage';
 import './App.css';
 
-const App: React.FC = () => {
+function App() {
   return (
     <div className="App">
       <StockExchangePage />
     </div>
   );
-};
+}
 
-
+export default App;
 
 
 

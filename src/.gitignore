@@ -1,0 +1,22 @@
+# 의존성 라이브러리 (용량이 크고 npm install로 언제든 재설치 가능)
+node_modules/
+/dist
+/dist-ssr
+
+# 환경 변수 및 비밀 키 파일 (보안상 절대 업로드 금지)
+.env
+.env.local
+.env.*.local
+
+# 로그 파일 및 오류 기록
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 편집기 및 시스템 설정 파일 (개인 설정이므로 제외)
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface DashboardProps {
-    data: {
+    data?: {
         cash?: number;
         returnRate?: number;
         balanceMoney: number;
