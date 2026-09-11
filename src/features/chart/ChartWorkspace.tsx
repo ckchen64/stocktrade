@@ -83,10 +83,18 @@ interface IndexConfigResponse {
   MACD_SIGNAL_PERIOD: number;
 
   RSI_PERIOD: number;
+
   MFI_PERIOD: number;
+  MFI_SIGNAL_PERIOD: number;
+
   SIGMA_PERIOD: number;
+  SIGMA_SIGNAL_PERIOD: number;
+
   ADX_PERIOD: number;
+
   CCI_PERIOD: number;
+  CCI_SIGNAL_PERIOD: number;
+
   EOM_PERIOD: number;
 }
 
@@ -342,10 +350,11 @@ const INDICATOR_DEFINITIONS:
     },
   ];
 
-  const getBackendBaseValue = (
+const getBackendBaseValue = (
   indicator: IndicatorKey,
   parameterKey: string,
-  config: IndexConfigResponse
+  config: IndexConfigResponse,
+  fallbackValue: number
 ): number => {
 
   switch (indicator) {
@@ -370,8 +379,14 @@ const INDICATOR_DEFINITIONS:
     case 'MFI':
       return config.MFI_PERIOD;
 
+    case 'MFI_SIGNAL':
+      return config.MFI_SIGNAL_PERIOD;
+
     case 'SIGMA':
       return config.SIGMA_PERIOD;
+
+    case 'SIGMA_SIGNAL':
+      return config.SIGMA_SIGNAL_PERIOD;
 
     case 'ADX':
     case 'DI_PLUS':
@@ -381,12 +396,83 @@ const INDICATOR_DEFINITIONS:
     case 'CCI':
       return config.CCI_PERIOD;
 
+    case 'CCI_SIGNAL':
+      return config.CCI_SIGNAL_PERIOD;
+
     case 'EOM':
       return config.EOM_PERIOD;
   }
 
-  return 0;
+  return fallbackValue;
 };
+
+/*
+ * =========================================================
+ * 화면 파라미터 -> 백엔드 설정 KEY 매핑
+ *
+ * null을 반환하는 항목은 아직 백엔드 설정 KEY가 없으므로
+ * 화면의 현재값만 변경되고 백엔드 계산값은 변경하지 않습니다.
+ * =========================================================
+ */
+function getBackendConfigKey(
+  indicator: IndicatorKey,
+  parameterKey: string
+): keyof IndexConfigResponse | null {
+
+  if (indicator === 'MACD' && parameterKey === 'fast') {
+    return 'MACD_FAST_PERIOD';
+  }
+
+  if (indicator === 'MACD' && parameterKey === 'slow') {
+    return 'MACD_SLOW_PERIOD';
+  }
+
+  if (indicator === 'MACD_SIGNAL') {
+    return 'MACD_SIGNAL_PERIOD';
+  }
+
+  if (indicator === 'RSI') {
+    return 'RSI_PERIOD';
+  }
+
+  if (indicator === 'MFI') {
+    return 'MFI_PERIOD';
+  }
+
+  if (indicator === 'MFI_SIGNAL') {
+    return 'MFI_SIGNAL_PERIOD';
+  }
+
+  if (indicator === 'SIGMA') {
+    return 'SIGMA_PERIOD';
+  }
+
+  if (indicator === 'SIGMA_SIGNAL') {
+    return 'SIGMA_SIGNAL_PERIOD';
+  }
+
+  if (
+    indicator === 'ADX' ||
+    indicator === 'DI_PLUS' ||
+    indicator === 'DI_MINUS'
+  ) {
+    return 'ADX_PERIOD';
+  }
+
+  if (indicator === 'CCI') {
+    return 'CCI_PERIOD';
+  }
+
+  if (indicator === 'CCI_SIGNAL') {
+    return 'CCI_SIGNAL_PERIOD';
+  }
+
+  if (indicator === 'EOM') {
+    return 'EOM_PERIOD';
+  }
+
+  return null;
+}
 
 /*
  * =========================================================
@@ -500,10 +586,18 @@ const DEFAULT_INDEX_CONFIG: IndexConfigResponse = {
   MACD_SIGNAL_PERIOD: 9,
 
   RSI_PERIOD: 14,
+
   MFI_PERIOD: 14,
+  MFI_SIGNAL_PERIOD: 9,
+
   SIGMA_PERIOD: 20,
+  SIGMA_SIGNAL_PERIOD: 9,
+
   ADX_PERIOD: 14,
+
   CCI_PERIOD: 20,
+  CCI_SIGNAL_PERIOD: 9,
+
   EOM_PERIOD: 14,
 };
 
@@ -514,29 +608,25 @@ const DEFAULT_INDEX_CONFIG: IndexConfigResponse = {
  * 모든 현재값을 기초값으로 초기화
  * =========================================================
  */
-function createDefaultParameterValues():
-  Record<string, number> {
+function createDefaultParameterValues(
+  config: IndexConfigResponse
+): Record<string, number> {
 
-  const values:
-    Record<string, number> = {};
+  const values: Record<string, number> = {};
 
+  INDICATOR_DEFINITIONS.forEach((indicator) => {
+    indicator.parameters.forEach((parameter) => {
+      const fullKey =
+        `${indicator.key}.${parameter.key}`;
 
-  INDICATOR_DEFINITIONS.forEach(
-    (indicator) => {
-
-      indicator.parameters.forEach(
-        (parameter) => {
-
-          const fullKey =
-            `${indicator.key}.${parameter.key}`;
-
-          values[fullKey] =
-            parameter.baseValue;
-        }
+      values[fullKey] = getBackendBaseValue(
+        indicator.key,
+        parameter.key,
+        config,
+        parameter.baseValue
       );
-    }
-  );
-
+    });
+  });
 
   return values;
 }
@@ -553,40 +643,99 @@ export default function ChartWorkspace({
 }: ChartWorkspaceProps):
   React.JSX.Element {
 
-    const [indexConfig, setIndexConfig] =
-  useState<IndexConfigResponse>(DEFAULT_INDEX_CONFIG);
+  const [indexConfig, setIndexConfig] =
+    useState<IndexConfigResponse>(DEFAULT_INDEX_CONFIG);
+
+  /*
+   * 기초값(indexConfig)과 별도로
+   * 현재 백엔드 Runtime 설정값을 관리합니다.
+   */
+  const [runtimeConfig, setRuntimeConfig] =
+    useState<IndexConfigResponse>(DEFAULT_INDEX_CONFIG);
 
   useEffect(() => {
-  const loadIndexConfig = async () => {
+    const loadIndexConfig = async () => {
+      try {
+        const response = await fetch('/api/index-config');
+
+        if (!response.ok) {
+          throw new Error(
+            `지표 설정 조회 실패: ${response.status}`
+          );
+        }
+
+        const data: IndexConfigResponse =
+          await response.json();
+
+        console.log(
+          '📊 백엔드 지표 설정:',
+          data
+        );
+
+        setIndexConfig(data);
+        setRuntimeConfig(data);
+
+      } catch (error) {
+        console.error(
+          '❌ 지표 설정 조회 실패. 기본값을 사용합니다.',
+          error
+        );
+      }
+    };
+
+    loadIndexConfig();
+  }, []);
+
+  /*
+   * =========================================================
+   * 현재값을 백엔드 Runtime 설정으로 저장
+   * =========================================================
+   */
+  const saveRuntimeConfig = async (
+    key: keyof IndexConfigResponse,
+    value: number
+  ): Promise<boolean> => {
+
     try {
-      const response = await fetch('/api/index-config');
+      const response = await fetch('/api/index-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          [key]: value,
+        }),
+      });
 
       if (!response.ok) {
         throw new Error(
-          `지표 설정 조회 실패: ${response.status}`
+          `지표 설정 변경 실패: ${response.status}`
         );
       }
 
-      const data: IndexConfigResponse =
-        await response.json();
+      const result = await response.json();
 
       console.log(
-        '📊 백엔드 지표 설정:',
-        data
+        '🔧 백엔드 Runtime 지표 설정 변경:',
+        result
       );
 
-      setIndexConfig(data);
+      setRuntimeConfig((prev) => ({
+        ...prev,
+        [key]: value,
+      }));
+
+      return true;
 
     } catch (error) {
       console.error(
-        '❌ 지표 설정 조회 실패. 기본값을 사용합니다.',
+        '❌ 백엔드 Runtime 지표 설정 변경 실패:',
         error
       );
+
+      return false;
     }
   };
-
-  loadIndexConfig();
-}, []);
 
   /*
    * =========================================================
@@ -638,16 +787,16 @@ export default function ChartWorkspace({
     sma60: 60,
   });
   useEffect(() => {
-  setSmaPeriods({
-    sma05: indexConfig.SMA_SHORT_WINDOW,
-    sma20: indexConfig.SMA_MEDIUM_WINDOW,
-    sma60: indexConfig.SMA_LONG_WINDOW,
-  });
-}, [
-  indexConfig.SMA_SHORT_WINDOW,
-  indexConfig.SMA_MEDIUM_WINDOW,
-  indexConfig.SMA_LONG_WINDOW,
-]);
+    setSmaPeriods({
+      sma05: indexConfig.SMA_SHORT_WINDOW,
+      sma20: indexConfig.SMA_MEDIUM_WINDOW,
+      sma60: indexConfig.SMA_LONG_WINDOW,
+    });
+  }, [
+    indexConfig.SMA_SHORT_WINDOW,
+    indexConfig.SMA_MEDIUM_WINDOW,
+    indexConfig.SMA_LONG_WINDOW,
+  ]);
 
 
   /*
@@ -713,26 +862,20 @@ export default function ChartWorkspace({
     ) => {
 
       if (
-        !Number.isFinite(
-          value
-        ) ||
+        !Number.isFinite(value) ||
         value <= 0
       ) {
         return;
       }
 
-
       setSmaPeriods(
         (prev) => ({
           ...prev,
-
-          [indicator]:
-            Math.floor(
-              value
-            ),
+          [indicator]: Math.floor(value),
         })
       );
     };
+
 
 
   /*
@@ -758,7 +901,7 @@ export default function ChartWorkspace({
       selectorOpen: false,
 
       parameterValues:
-        createDefaultParameterValues(),
+        createDefaultParameterValues(runtimeConfig),
     };
 
 
@@ -918,48 +1061,145 @@ export default function ChartWorkspace({
     ) => {
 
       if (
-        !Number.isFinite(
-          value
-        ) ||
+        !Number.isFinite(value) ||
         value <= 0
       ) {
         return;
       }
 
-
       const fullKey =
         `${indicator}.${parameterKey}`;
-
 
       setIndicatorPanels(
         (prev) =>
           prev.map(
             (panel) => {
 
-              if (
-                panel.id !==
-                panelId
-              ) {
+              if (panel.id !== panelId) {
                 return panel;
               }
-
 
               return {
                 ...panel,
 
                 parameterValues: {
                   ...panel.parameterValues,
-
-                  [fullKey]:
-                    Math.floor(
-                      value
-                    ),
+                  [fullKey]: Math.floor(value),
                 },
               };
             }
           )
       );
     };
+
+
+  /*
+   * 입력이 끝났을 때(포커스 이탈) 백엔드 Runtime 설정에 반영
+   */
+  const handleParameterCommit = async (
+    panelId: number,
+    indicator: IndicatorKey,
+    parameterKey: string
+  ) => {
+
+    const configKey = getBackendConfigKey(
+      indicator,
+      parameterKey
+    );
+
+    // 아직 백엔드 설정 KEY가 없는 Signal 항목은
+    // 현재 단계에서 화면 값만 유지합니다.
+    if (configKey === null) {
+      console.log(
+        `ℹ️ ${indicator}.${parameterKey}는 아직 백엔드 설정 KEY가 없어 화면 값만 변경됩니다.`
+      );
+      return;
+    }
+
+    const fullKey =
+      `${indicator}.${parameterKey}`;
+
+    const panel = indicatorPanels.find(
+      (item) => item.id === panelId
+    );
+
+    if (!panel) {
+      return;
+    }
+
+    const value = panel.parameterValues[fullKey];
+
+    if (
+      !Number.isFinite(value) ||
+      value <= 0
+    ) {
+      return;
+    }
+
+    const success = await saveRuntimeConfig(
+      configKey,
+      Math.floor(value)
+    );
+
+    if (!success) {
+      // PUT 실패 시 마지막으로 확인된 Runtime 값으로 복구
+      setIndicatorPanels(
+        (prev) =>
+          prev.map((item) => {
+            if (item.id !== panelId) {
+              return item;
+            }
+
+            return {
+              ...item,
+              parameterValues: {
+                ...item.parameterValues,
+                [fullKey]: runtimeConfig[configKey],
+              },
+            };
+          })
+      );
+      return;
+    }
+
+    /*
+     * 백엔드는 지표별로 하나의 Runtime 설정값을 공유합니다.
+     * 같은 지표가 차트 2/3/4에 중복 선택되어 있더라도
+     * 같은 백엔드 KEY를 사용하는 현재값은 모두 동일하게 맞춥니다.
+     *
+     * 예)
+     * MACD Fast가 여러 차트에 있어도 모두 같은 MACD_FAST_PERIOD 사용
+     * ADX / DI+ / DI-도 모두 같은 ADX_PERIOD 사용
+     */
+    const synchronizedValues: Record<string, number> = {};
+
+    INDICATOR_DEFINITIONS.forEach((definition) => {
+      definition.parameters.forEach((parameter) => {
+        const mappedKey = getBackendConfigKey(
+          definition.key,
+          parameter.key
+        );
+
+        if (mappedKey === configKey) {
+          synchronizedValues[
+            `${definition.key}.${parameter.key}`
+          ] = Math.floor(value);
+        }
+      });
+    });
+
+    setIndicatorPanels(
+      (prev) =>
+        prev.map((item) => ({
+          ...item,
+          parameterValues: {
+            ...item.parameterValues,
+            ...synchronizedValues,
+          },
+        }))
+    );
+  };
+
 
 
   return (
@@ -1479,6 +1719,15 @@ export default function ChartWorkspace({
                                   `${indicator.key}.${parameter.key}`;
 
 
+                                const baseValue =
+                                  getBackendBaseValue(
+                                    indicator.key,
+                                    parameter.key,
+                                    indexConfig,
+                                    parameter.baseValue
+                                  );
+
+
                                 const currentValue =
                                   panel
                                     .parameterValues[
@@ -1530,7 +1779,7 @@ export default function ChartWorkspace({
                                       }}
                                     >
                                       {
-                                        parameter.baseValue
+                                        baseValue
                                       }
                                     </span>
 
@@ -1548,7 +1797,7 @@ export default function ChartWorkspace({
 
                                       value={
                                         currentValue ??
-                                        parameter.baseValue
+                                        baseValue
                                       }
 
                                       onChange={(
@@ -1563,6 +1812,14 @@ export default function ChartWorkspace({
                                               .target
                                               .value
                                           )
+                                        )
+                                      }
+
+                                      onBlur={() =>
+                                        handleParameterCommit(
+                                          panel.id,
+                                          indicator.key,
+                                          parameter.key
                                         )
                                       }
 
